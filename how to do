@@ -1,0 +1,263 @@
+# NVIDIA Jetson Deployment Guide for EEGNet BCI
+
+## Overview
+This guide covers deploying the EEGNet-based Brain-Computer Interface (BCI) system on NVIDIA Jetson devices for real-time inference.
+
+## Prerequisites
+
+### 1. Hardware Requirements
+- **NVIDIA Jetson device** (Jetson Nano, Xavier NX, AGX Xavier, or Orin)
+- **MicroSD card** (64GB+ recommended, Class 10 or better)
+- **Power supply** (official Jetson power adapter)
+- **Cooling solution** (fan or heatsink recommended)
+- **EEG acquisition device** (compatible with your Jetson via USB/Serial)
+
+### 2. Software Prerequisites on Jetson
+
+#### Step 1: Flash JetPack
+1. Download **JetPack SDK** from NVIDIA Developer website
+   - Recommended: JetPack 4.6+ (for TensorFlow 1.x) or JetPack 5.x (for TensorFlow 2.x)
+   - For this project (TensorFlow 1.15), use **JetPack 4.6.x**
+2. Flash the Jetson using NVIDIA SDK Manager or balenaEtcher
+3. Complete initial setup (username, password, WiFi, etc.)
+
+#### Step 2: Update System
+```bash
+sudo apt-get update
+sudo apt-get upgrade -y
+sudo apt-get install -y python3-pip python3-dev
+```
+
+#### Step 3: Install System Dependencies
+```bash
+sudo apt-get install -y \
+    libhdf5-serial-dev \
+    hdf5-tools \
+    libhdf5-dev \
+    zlib1g-dev \
+    zip \
+    libjpeg8-dev \
+    liblapack-dev \
+    libblas-dev \
+    gfortran
+```
+
+#### Step 4: Install Python Package Manager
+```bash
+# Install pip3 if not already installed
+sudo apt-get install -y python3-pip
+pip3 install --upgrade pip setuptools wheel
+```
+
+#### Step 5: Install TensorFlow for Jetson
+**For JetPack 4.6 (TensorFlow 1.15):**
+```bash
+# Install TensorFlow 1.15 for Jetson
+sudo pip3 install --pre --extra-index-url https://developer.download.nvidia.com/compute/redist/jp/v46 tensorflow==1.15.5+nv20.12
+```
+
+**For JetPack 5.x (TensorFlow 2.x - requires code migration):**
+```bash
+# Install TensorFlow 2.x
+sudo pip3 install --extra-index-url https://developer.download.nvidia.com/compute/redist/jp/v50 tensorflow
+```
+
+#### Step 6: Install Other Python Dependencies
+```bash
+pip3 install numpy==1.18.5
+pip3 install scipy==1.4.1
+pip3 install scikit-learn==0.22.1
+pip3 install h5py==2.10.0
+pip3 install keras==2.2.4
+pip3 install pyedflib==0.1.15  # Only if you need to read EDF files
+```
+
+**Note:** If using TensorFlow 1.15, you may need to install Keras separately:
+```bash
+pip3 install keras==2.2.4
+```
+
+#### Step 7: Verify Installation
+```bash
+python3 -c "import tensorflow as tf; print(tf.__version__)"
+python3 -c "import keras; print(keras.__version__)"
+python3 -c "import numpy; print(numpy.__version__)"
+```
+
+## Files to Deploy on Jetson
+
+### ✅ REQUIRED Files (Minimal Deployment for Inference)
+
+1. **Model Files** (`.h5` files):
+   ```
+   results/your-global-experiment/model/
+   ├── global_class_4_ds1_nch64_T3_split_0.h5
+   ├── global_class_4_ds1_nch64_T3_split_1.h5
+   ├── global_class_4_ds1_nch64_T3_split_2.h5
+   ├── global_class_4_ds1_nch64_T3_split_3.h5
+   └── global_class_4_ds1_nch64_T3_split_4.h5
+   ```
+
+2. **Core Python Modules**:
+   ```
+   ├── models.py              # EEGNet model definition
+   ├── eeg_reduction.py       # Data preprocessing functions
+   └── inference.py           # Inference script (create this)
+   ```
+
+### ❌ NOT Required for Inference
+
+- ❌ **Dataset folder** (`dataset/` with all `.edf` files) - Only needed for training
+- ❌ **Training scripts** (`main_global.py`, `main_ss.py`) - Only needed for training
+- ❌ **Test scripts** that load dataset (`test_model.py` as-is)
+- ❌ **Jupyter notebooks** (`plot_nbook/`)
+- ❌ **Results/stats** folders (unless you need them for analysis)
+
+## Deployment Steps
+
+### Step 1: Transfer Files to Jetson
+
+**Option A: Using SCP (from your development machine)**
+```bash
+# Create directory on Jetson
+ssh jetson@<jetson-ip> "mkdir -p ~/eegnet-bci"
+
+# Transfer required files
+scp -r eegnet-based-embedded-bci/models.py jetson@<jetson-ip>:~/eegnet-bci/
+scp -r eegnet-based-embedded-bci/eeg_reduction.py jetson@<jetson-ip>:~/eegnet-bci/
+scp -r eegnet-based-embedded-bci/results/your-global-experiment/model/*.h5 jetson@<jetson-ip>:~/eegnet-bci/models/
+```
+
+**Option B: Using USB Drive**
+1. Copy files to USB drive
+2. Mount USB on Jetson: `sudo mount /dev/sda1 /mnt/usb`
+3. Copy files: `cp -r /mnt/usb/eegnet-bci ~/`
+
+**Option C: Using Git (if repository is available)**
+```bash
+git clone <your-repo-url>
+cd eegnet-based-embedded-bci
+# Then manually copy only required files
+```
+
+### Step 2: Create Directory Structure on Jetson
+```bash
+cd ~
+mkdir -p eegnet-bci/models
+mkdir -p eegnet-bci/data
+```
+
+### Step 3: Verify Model Files
+```bash
+cd ~/eegnet-bci
+ls -lh models/*.h5
+# Should show 5 model files (~few MB each)
+```
+
+## Running Inference
+
+### Basic Inference Script
+Use the provided `inference.py` script (see below) for real-time inference.
+
+### Example Usage:
+```bash
+cd ~/eegnet-bci
+python3 inference.py --model models/global_class_4_ds1_nch64_T3_split_0.h5 --data your_eeg_data.npy
+```
+
+## Performance Optimization for Jetson
+
+### 1. Enable Maximum Performance Mode
+```bash
+sudo nvpmodel -m 0  # Maximum performance mode
+sudo jetson_clocks  # Set maximum clocks
+```
+
+### 2. Use TensorRT (Optional - Advanced)
+For faster inference, convert models to TensorRT:
+```bash
+# Install TensorRT (usually pre-installed with JetPack)
+# Convert .h5 to TensorRT engine
+python3 convert_to_tensorrt.py  # (create this script if needed)
+```
+
+### 3. Batch Processing
+Process multiple samples in batches for better GPU utilization:
+```python
+predictions = model.predict(X_batch, batch_size=16)
+```
+
+### 4. Memory Management
+Jetson devices have limited RAM. Monitor usage:
+```bash
+# Monitor memory
+tegrastats
+```
+
+## Troubleshooting
+
+### Issue: Out of Memory
+**Solution:**
+- Reduce batch size in inference
+- Use model quantization
+- Close unnecessary applications
+
+### Issue: TensorFlow/Keras Version Mismatch
+**Solution:**
+- Ensure TensorFlow 1.15.x and Keras 2.2.4 are installed
+- Check compatibility: `python3 -c "import tensorflow as tf; import keras; print('OK')"`
+
+### Issue: Model Loading Fails
+**Solution:**
+- Verify model file integrity: `file models/*.h5`
+- Check file permissions: `chmod 644 models/*.h5`
+- Ensure all dependencies are installed
+
+### Issue: Slow Inference
+**Solution:**
+- Enable performance mode: `sudo nvpmodel -m 0 && sudo jetson_clocks`
+- Use TensorRT conversion
+- Reduce input data size if possible
+- Check GPU utilization: `tegrastats`
+
+## Real-Time EEG Data Acquisition
+
+For real-time inference, you'll need to:
+1. Connect your EEG device to Jetson (USB/Serial)
+2. Stream data in real-time
+3. Buffer 3 seconds of data (480 samples at 160 Hz)
+4. Preprocess using `eeg_reduction()`
+5. Run inference
+
+Example data format expected:
+- Shape: `(1, 64, 480)` for single sample
+- Or: `(batch_size, 64, 480)` for batch processing
+- After preprocessing: `(batch_size, 64, 480, 1)`
+
+## Storage Requirements
+
+**Minimal Deployment:**
+- Model files: ~5-10 MB (5 models)
+- Python code: ~50 KB
+- Dependencies: ~500 MB (if installing from scratch)
+- **Total: ~1 GB** (excluding OS and dependencies)
+
+**Full Deployment (with dataset):**
+- Dataset: ~2-5 GB (all .edf files)
+- **Total: ~6 GB**
+
+## Next Steps
+
+1. ✅ Set up Jetson with JetPack
+2. ✅ Install dependencies
+3. ✅ Transfer model files and code
+4. ✅ Test inference with sample data
+5. ✅ Integrate with your EEG acquisition hardware
+6. ✅ Optimize for real-time performance
+
+## Additional Resources
+
+- [NVIDIA Jetson Documentation](https://developer.nvidia.com/embedded/jetson-documentation)
+- [TensorFlow on Jetson](https://docs.nvidia.com/deeplearning/frameworks/install-tf-jetson-platform/index.html)
+- [Jetson Performance Tuning](https://developer.nvidia.com/embedded/jetson-performance)
+
